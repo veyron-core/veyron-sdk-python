@@ -48,14 +48,22 @@ class Plugin(ABC):
 
     async def run(self) -> None:
         await self._client.connect()
-        ack = await self._client.register(
-            self.plugin_id, self.manifest, self.jwt_token
-        )
-        if not ack.plugin_register_ack.accepted:
-            raise RuntimeError(
-                f"registration rejected: {ack.plugin_register_ack.reject_reason}"
+        try:
+            ack = await self._client.register(
+                self.plugin_id, self.manifest, self.jwt_token
             )
-        await self.on_init()
+            if not ack.HasField("plugin_register_ack"):
+                raise RuntimeError(
+                    f"registration failed: {ack.error.message or ack}"
+                )
+            if not ack.plugin_register_ack.accepted:
+                raise RuntimeError(
+                    f"registration rejected: {ack.plugin_register_ack.reject_reason}"
+                )
+            await self.on_init()
+        except BaseException:
+            await self._client.close()
+            raise
         try:
             while True:
                 env = await self._client.recv()

@@ -127,4 +127,6 @@ async def async_read_frame(reader, session_key: Optional[bytes] = None) -> bytes
         tag = await reader.readexactly(32)
         if session_key is not None and not verify_tag(session_key, header_bytes, payload, tag):
             raise ValueError("MAC verification failed")
+    elif session_key is not None:
+        raise ValueError("MAC missing on secured connection")
     return payload
