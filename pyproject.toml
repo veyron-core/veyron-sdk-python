@@ -11,17 +11,20 @@ license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.9"
 authors = [
-    { name = "veyron-core" },
+    { name = "veyron-core", email = "btemirkhodjaev@gmail.com" },
 ]
 keywords = ["veyron", "plugin", "ipc", "sdk", "kernel"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Libraries",
 ]
 dependencies = [

@@ -12,8 +12,24 @@ HEADER_SIZE = struct.calcsize(HEADER_FMT)  # 44
 MAX_PAYLOAD = 1_048_576
 FLAG_MAC_PRESENT   = 0x0001
 FLAG_COMPRESSED    = 0x0002  # payload is zstd-compressed; CRC32 over compressed bytes
+FLAG_FRAGMENTED    = 0x0004  # payload is one fragment; first FRAG_HEADER_SIZE bytes are metadata
 FLAG_RAW_BINARY    = 0x0010  # payload is raw bytes (PCM/Opus); router skips Protobuf decode
 COMPRESS_THRESHOLD = 65_536  # payloads >= this size are candidates for compression
+
+# Fragment metadata header: [fragment_id: u16][sequence: u16][total: u16][stream_id: u32]
+FRAG_HEADER_FMT = ">HHHI"
+FRAG_HEADER_SIZE = struct.calcsize(FRAG_HEADER_FMT)  # 10
+
+
+def pack_frag_header(fragment_id: int, sequence: int, total: int, stream_id: int) -> bytes:
+    return struct.pack(FRAG_HEADER_FMT, fragment_id, sequence, total, stream_id)
+
+
+def parse_frag_header(payload: bytes):
+    """Returns (fragment_id, sequence, total, stream_id) or None if too short."""
+    if len(payload) < FRAG_HEADER_SIZE:
+        return None
+    return struct.unpack(FRAG_HEADER_FMT, payload[:FRAG_HEADER_SIZE])
 
 
 # ---------------------------------------------------------------------------
@@ -108,8 +124,10 @@ def header_bytes_for(flags: int, target_bytes: bytes, payload: bytes) -> bytes:
     return struct.pack(HEADER_FMT, MAGIC, flags, len(payload), target_bytes, checksum)
 
 
-async def async_read_frame(reader, session_key: Optional[bytes] = None) -> bytes:
-    """Read one frame from an asyncio StreamReader. Returns payload bytes."""
+async def async_read_frame(reader, session_key: Optional[bytes] = None):
+    """Read one frame from an asyncio StreamReader. Returns (flags, payload);
+    flags has FLAG_COMPRESSED cleared (already normalized) but FLAG_FRAGMENTED
+    and FLAG_RAW_BINARY preserved for the caller to act on."""
     header_bytes = await reader.readexactly(HEADER_SIZE)
     magic, flags, length, target_bytes, stored_crc = struct.unpack(HEADER_FMT, header_bytes)
     if magic != MAGIC:
@@ -129,4 +147,4 @@ async def async_read_frame(reader, session_key: Optional[bytes] = None) -> bytes
             raise ValueError("MAC verification failed")
     elif session_key is not None:
         raise ValueError("MAC missing on secured connection")
-    return payload
+    return flags, payload
