@@ -46,6 +46,10 @@ class Plugin(ABC):
     async def on_shutdown(self) -> None:
         """Called before the plugin exits."""
 
+    async def on_event(self, event) -> None:
+        """Called for each delivered Event. Default is a no-op. Returning
+        normally acks the event; raising skips the ack (kernel retries)."""
+
     async def run(self) -> None:
         await self._client.connect()
         try:
@@ -79,6 +83,15 @@ class Plugin(ABC):
                         )
                     )
                     await self._client.send("kernel", pong)
+                    continue
+                if env.HasField("event"):
+                    # On handler error no ack is sent — the kernel will retry
+                    # (mirrors the Rust SDK; T-06).
+                    try:
+                        await self.on_event(env.event)
+                        await self._client.ack_event(env.event.event_id)
+                    except Exception:
+                        pass
                     continue
                 await self.on_message(env)
         finally:

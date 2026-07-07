@@ -15,6 +15,7 @@ from .framing import (
 )
 from .veyron_protocol_pb2 import (
     Envelope,
+    EventAck,
     PluginManifest,
     PluginRegister,
     Ping,
@@ -119,6 +120,14 @@ class VeyronClient:
         sub = Subscribe(event_types=event_types)
         env = Envelope()
         env.subscribe.CopyFrom(sub)
+        await self._send_envelope("kernel", env)
+
+    async def ack_event(self, event_id: str) -> None:
+        """Confirm an Event was received and handled — kernel stops retrying
+        it. An un-acked event is redelivered up to max_retries then dropped
+        (T-06)."""
+        env = Envelope()
+        env.event_ack.CopyFrom(EventAck(event_id=event_id))
         await self._send_envelope("kernel", env)
 
     async def ping(self) -> float:
