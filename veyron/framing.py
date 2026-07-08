@@ -110,7 +110,10 @@ def pack_frame(
 def _decompress(payload: bytes) -> bytes:
     """Bounded zstd decompression mirroring src/ipc/framing.rs:234."""
     decompressor = zstandard.ZstdDecompressor()
-    out = decompressor.decompress(payload, max_output_size=MAX_PAYLOAD)
+    try:
+        out = decompressor.decompress(payload, max_output_size=MAX_PAYLOAD)
+    except zstandard.ZstdError as e:
+        raise ValueError(f"zstd decompression failed: {e}") from e
     if len(out) > MAX_PAYLOAD:
         raise ValueError(f"decompressed payload too large: {len(out)} > {MAX_PAYLOAD}")
     return out

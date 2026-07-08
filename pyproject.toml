@@ -40,6 +40,10 @@ dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21",
 ]
+fuzz = [
+    # T-14: fuzz/fuzz_framing.py harness for veyron.framing.read_frame.
+    "atheris>=2.3; platform_system != 'Windows'",
+]
 
 [project.urls]
 Homepage = "https://github.com/veyron-core/veyron"
