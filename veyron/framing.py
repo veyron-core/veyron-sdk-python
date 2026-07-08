@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import hmac as _hmac
 import struct
@@ -15,6 +16,13 @@ FLAG_COMPRESSED    = 0x0002  # payload is zstd-compressed; CRC32 over compressed
 FLAG_FRAGMENTED    = 0x0004  # payload is one fragment; first FRAG_HEADER_SIZE bytes are metadata
 FLAG_RAW_BINARY    = 0x0010  # payload is raw bytes (PCM/Opus); router skips Protobuf decode
 COMPRESS_THRESHOLD = 65_536  # payloads >= this size are candidates for compression
+
+# Once a frame has started arriving, the rest of the header + payload must
+# complete within this window. Bounds slow-loris stalls (a peer that sends
+# one byte declaring a large payload then dribbles or stops). Idle
+# connections waiting for the next frame are NOT subject to it. Mirrors
+# wire/src/framing.rs FRAME_READ_TIMEOUT.
+FRAME_READ_TIMEOUT = 10.0  # seconds
 
 # Fragment metadata header: [fragment_id: u16][sequence: u16][total: u16][stream_id: u32]
 FRAG_HEADER_FMT = ">HHHI"
@@ -124,17 +132,21 @@ def header_bytes_for(flags: int, target_bytes: bytes, payload: bytes) -> bytes:
     return struct.pack(HEADER_FMT, MAGIC, flags, len(payload), target_bytes, checksum)
 
 
-async def async_read_frame(reader, session_key: Optional[bytes] = None):
-    """Read one frame from an asyncio StreamReader. Returns (flags, payload);
-    flags has FLAG_COMPRESSED cleared (already normalized) but FLAG_FRAGMENTED
-    and FLAG_RAW_BINARY preserved for the caller to act on."""
-    header_bytes = await reader.readexactly(HEADER_SIZE)
+def read_frame(stream, session_key: Optional[bytes] = None) -> bytes:
+    """Read one frame from a synchronous, file-like stream (e.g. io.BytesIO)
+    and return the payload. No timeout: intended for already-buffered input,
+    not a live socket — use async_read_frame for that."""
+    header_bytes = stream.read(HEADER_SIZE)
+    if len(header_bytes) < HEADER_SIZE:
+        raise ValueError("truncated frame header")
     magic, flags, length, target_bytes, stored_crc = struct.unpack(HEADER_FMT, header_bytes)
     if magic != MAGIC:
         raise ValueError(f"bad magic: 0x{magic:04x}")
     if length > MAX_PAYLOAD:
         raise ValueError(f"payload too large: {length}")
-    payload = await reader.readexactly(length) if length > 0 else b""
+    payload = stream.read(length) if length > 0 else b""
+    if len(payload) < length:
+        raise ValueError("truncated frame payload")
     computed = crc32(payload) & 0xFFFFFFFF
     if computed != stored_crc:
         raise ValueError(f"CRC mismatch: got 0x{computed:08x}, want 0x{stored_crc:08x}")
@@ -142,9 +154,52 @@ async def async_read_frame(reader, session_key: Optional[bytes] = None):
     flags, header_bytes, payload = _normalize(flags, target_bytes, payload)
 
     if flags & FLAG_MAC_PRESENT:
-        tag = await reader.readexactly(32)
+        tag = stream.read(32)
+        if len(tag) < 32:
+            raise ValueError("truncated MAC tag")
         if session_key is not None and not verify_tag(session_key, header_bytes, payload, tag):
             raise ValueError("MAC verification failed")
     elif session_key is not None:
         raise ValueError("MAC missing on secured connection")
-    return flags, payload
+    return payload
+
+
+async def async_read_frame(
+    reader,
+    session_key: Optional[bytes] = None,
+    frame_timeout: float = FRAME_READ_TIMEOUT,
+):
+    """Read one frame from an asyncio StreamReader. Returns (flags, payload);
+    flags has FLAG_COMPRESSED cleared (already normalized) but FLAG_FRAGMENTED
+    and FLAG_RAW_BINARY preserved for the caller to act on."""
+    # Block indefinitely for the first byte — an idle connection between
+    # frames must not be torn down. Once a byte arrives, a frame is in
+    # progress and the remainder is bounded by frame_timeout.
+    first_byte = await reader.readexactly(1)
+
+    async def _read_body():
+        header_bytes = first_byte + await reader.readexactly(HEADER_SIZE - 1)
+        magic, flags, length, target_bytes, stored_crc = struct.unpack(HEADER_FMT, header_bytes)
+        if magic != MAGIC:
+            raise ValueError(f"bad magic: 0x{magic:04x}")
+        if length > MAX_PAYLOAD:
+            raise ValueError(f"payload too large: {length}")
+        payload = await reader.readexactly(length) if length > 0 else b""
+        computed = crc32(payload) & 0xFFFFFFFF
+        if computed != stored_crc:
+            raise ValueError(f"CRC mismatch: got 0x{computed:08x}, want 0x{stored_crc:08x}")
+
+        flags, header_bytes2, payload = _normalize(flags, target_bytes, payload)
+
+        if flags & FLAG_MAC_PRESENT:
+            tag = await reader.readexactly(32)
+            if session_key is not None and not verify_tag(session_key, header_bytes2, payload, tag):
+                raise ValueError("MAC verification failed")
+        elif session_key is not None:
+            raise ValueError("MAC missing on secured connection")
+        return flags, payload
+
+    try:
+        return await asyncio.wait_for(_read_body(), timeout=frame_timeout)
+    except asyncio.TimeoutError:
+        raise ValueError("veyron: frame read timed out") from None

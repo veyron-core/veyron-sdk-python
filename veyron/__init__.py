@@ -20,6 +20,6 @@ except (ImportError, _ProtoVersionError) as _import_err:  # missing deps or prot
     VeyronClient = _unavailable("VeyronClient")  # type: ignore[assignment,misc]
     Plugin = _unavailable("Plugin")  # type: ignore[assignment,misc]
 
-from .framing import pack_frame, async_read_frame
+from .framing import pack_frame, read_frame, async_read_frame
 
-__all__ = ["VeyronClient", "Plugin", "pack_frame", "async_read_frame"]
+__all__ = ["VeyronClient", "Plugin", "pack_frame", "read_frame", "async_read_frame"]
