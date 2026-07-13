@@ -71,6 +71,27 @@ The SDK's `framing` module implements the full Veyron wire format described
 in `docs/FRAMING.md`: HMAC-tagged frames, zstd decompression for payloads
 compressed by the kernel, and reassembly of fragmented messages.
 
+## Client API
+
+For lower-level control, use `VeyronClient` directly:
+
+```python
+client = VeyronClient(socket_path, secret=secret)
+await client.connect()
+ack = await client.register("weather", manifest, jwt_token)
+
+await client.subscribe(["alarm.fired"])
+ack = await client.publish_event("weather.updated", b'{"city":"Berlin"}', 5_000)
+latency = await client.ping()
+```
+
+`publish_event` requires `PERMISSION_EVENT_PUBLISH`; `timeout_ms=0` uses the
+kernel's 30s default. It returns the kernel's `EventPublishAck` as-is —
+inspect `ack.status` yourself (`EVENT_PUBLISH_OK`/`ERROR`/`PERMISSION_DENY`) —
+and only raises on a kernel `Error` envelope or on timeout. Requests and
+responses are matched on a single connection; drive request/response traffic
+from one task.
+
 ## Development
 
 ```bash
