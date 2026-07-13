@@ -16,11 +16,15 @@ from .framing import (
 from .veyron_protocol_pb2 import (
     Envelope,
     EventAck,
+    EventPublish,
+    EventPublishAck,
     PluginManifest,
     PluginRegister,
     Ping,
     Subscribe,
 )
+
+DEFAULT_PUBLISH_EVENT_TIMEOUT = 30.0
 
 # Mirror of the kernel's inbound reassembly bounds (see src/ipc/connection.rs).
 MAX_REASSEMBLY_STREAMS = 64
@@ -139,6 +143,33 @@ class VeyronClient:
         await self._send_envelope("kernel", env)
         await self.recv()
         return time.monotonic() - t0
+
+    async def publish_event(
+        self, event_type: str, payload_json: bytes, timeout_ms: int = 0
+    ) -> EventPublishAck:
+        """Publish an event to the kernel event bus. Requires
+        PERMISSION_EVENT_PUBLISH. timeout_ms == 0 uses the kernel default of
+        30s. Raises RuntimeError on a kernel Error envelope, TimeoutError on
+        deadline expiry. The returned EventPublishAck is returned as-is
+        regardless of its status field — callers inspect ack.status
+        themselves, mirroring the Rust SDK."""
+        env = Envelope()
+        env.event_publish.CopyFrom(EventPublish(event_type=event_type, payload_json=payload_json))
+        await self._send_envelope("kernel", env)
+
+        deadline = time.monotonic() + (timeout_ms / 1000 if timeout_ms else DEFAULT_PUBLISH_EVENT_TIMEOUT)
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("veyron: publish_event timed out")
+            resp = await asyncio.wait_for(self.recv(), timeout=remaining)
+            if resp.HasField("event_publish_ack"):
+                return resp.event_publish_ack
+            if resp.HasField("error"):
+                raise RuntimeError(
+                    f"kernel error: {resp.error.message} ({resp.error.details})"
+                )
+            # unrelated traffic while waiting — discard, keep waiting
 
     async def send_fragmented(self, target: str, payload: bytes, chunk_size: int) -> None:
         """Split `payload` into FLAG_FRAGMENTED frames of at most `chunk_size`
