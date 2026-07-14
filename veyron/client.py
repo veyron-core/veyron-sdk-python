@@ -1,6 +1,7 @@
 import asyncio
+import itertools
 import time
-from typing import Optional
+from typing import Callable, Optional
 
 from .framing import (
     FLAG_FRAGMENTED,
@@ -14,6 +15,10 @@ from .framing import (
     parse_frag_header,
 )
 from .veyron_protocol_pb2 import (
+    ActionRequest,
+    ActionRequestChunk,
+    ActionResponse,
+    ActionResponseChunk,
     Envelope,
     EventAck,
     EventPublish,
@@ -21,10 +26,20 @@ from .veyron_protocol_pb2 import (
     PluginManifest,
     PluginRegister,
     Ping,
+    SessionClose,
     Subscribe,
 )
 
 DEFAULT_PUBLISH_EVENT_TIMEOUT = 30.0
+DEFAULT_ACTION_TIMEOUT = 30.0
+
+# Module-level counter, mirroring the rust SDK's free-function
+# next_request_id("act") (not per-connection state).
+_action_seq = itertools.count()
+
+
+def _next_action_id() -> str:
+    return f"act-{int(time.time() * 1000)}-{next(_action_seq)}"
 
 # Mirror of the kernel's inbound reassembly bounds (see src/ipc/connection.rs).
 MAX_REASSEMBLY_STREAMS = 64
@@ -144,6 +159,21 @@ class VeyronClient:
         await self.recv()
         return time.monotonic() - t0
 
+    async def _await_matching(
+        self, deadline: float, predicate: Callable[[Envelope], bool]
+    ) -> Envelope:
+        """Loop recv/predicate until predicate(env) is true or deadline
+        passes. Shared by publish_event and send_action — each supplies its
+        own match/discard predicate."""
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("veyron: timed out waiting for response")
+            resp = await asyncio.wait_for(self.recv(), timeout=remaining)
+            if predicate(resp):
+                return resp
+            # unrelated traffic while waiting — discard, keep waiting
+
     async def publish_event(
         self, event_type: str, payload_json: bytes, timeout_ms: int = 0
     ) -> EventPublishAck:
@@ -158,18 +188,87 @@ class VeyronClient:
         await self._send_envelope("kernel", env)
 
         deadline = time.monotonic() + (timeout_ms / 1000 if timeout_ms else DEFAULT_PUBLISH_EVENT_TIMEOUT)
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise TimeoutError("veyron: publish_event timed out")
-            resp = await asyncio.wait_for(self.recv(), timeout=remaining)
-            if resp.HasField("event_publish_ack"):
-                return resp.event_publish_ack
-            if resp.HasField("error"):
-                raise RuntimeError(
-                    f"kernel error: {resp.error.message} ({resp.error.details})"
-                )
-            # unrelated traffic while waiting — discard, keep waiting
+        resp = await self._await_matching(
+            deadline,
+            lambda r: r.HasField("event_publish_ack") or r.HasField("error"),
+        )
+        if resp.HasField("error"):
+            raise RuntimeError(
+                f"kernel error: {resp.error.message} ({resp.error.details})"
+            )
+        return resp.event_publish_ack
+
+    async def send_action(
+        self, action: str, params_json: bytes, timeout_ms: int = 0
+    ) -> ActionResponse:
+        """Ask the kernel to perform an action and await its ActionResponse.
+        timeout_ms == 0 uses the kernel default of 30s. Raises RuntimeError on
+        a kernel Error envelope or an ActionStreamAbort for this action_id,
+        TimeoutError on deadline expiry."""
+        action_id = _next_action_id()
+        env = Envelope()
+        env.action_request.CopyFrom(ActionRequest(
+            action_id=action_id,
+            action=action,
+            params_json=params_json,
+            timeout_ms=timeout_ms,
+            streaming=False,
+        ))
+        await self._send_envelope("kernel", env)
+
+        deadline = time.monotonic() + (timeout_ms / 1000 if timeout_ms else DEFAULT_ACTION_TIMEOUT)
+        resp = await self._await_matching(
+            deadline,
+            lambda r: (r.HasField("action_response") and r.action_response.action_id == action_id)
+            or (r.HasField("action_stream_abort") and r.action_stream_abort.action_id == action_id)
+            or r.HasField("error"),
+        )
+        if resp.HasField("error"):
+            raise RuntimeError(
+                f"kernel error: {resp.error.message} ({resp.error.details})"
+            )
+        if resp.HasField("action_stream_abort"):
+            raise RuntimeError(f"stream aborted: {resp.action_stream_abort.reason}")
+        return resp.action_response
+
+    async def send_action_streaming(self, action: str, timeout_ms: int = 0) -> str:
+        """Fire an ActionRequest with streaming=True and return its action_id
+        immediately — no wait. Caller drives send_request_chunk/recv/
+        close_session afterward."""
+        action_id = _next_action_id()
+        env = Envelope()
+        env.action_request.CopyFrom(ActionRequest(
+            action_id=action_id,
+            action=action,
+            timeout_ms=timeout_ms,
+            streaming=True,
+        ))
+        await self._send_envelope("kernel", env)
+        return action_id
+
+    async def send_request_chunk(
+        self, action_id: str, seq: int, chunk: bytes, is_final: bool
+    ) -> None:
+        """Fire-and-forget: one chunk of a streaming action's request body."""
+        env = Envelope()
+        env.action_request_chunk.CopyFrom(ActionRequestChunk(
+            action_id=action_id, seq=seq, chunk=chunk, final=is_final
+        ))
+        await self._send_envelope("kernel", env)
+
+    async def send_response_chunk(self, action_id: str, seq: int, chunk: bytes) -> None:
+        """Fire-and-forget: one chunk of a streaming action's response body."""
+        env = Envelope()
+        env.action_response_chunk.CopyFrom(ActionResponseChunk(
+            action_id=action_id, seq=seq, chunk=chunk
+        ))
+        await self._send_envelope("kernel", env)
+
+    async def close_session(self, action_id: str, reason: str) -> None:
+        """Fire-and-forget: tell the peer this action's session is done."""
+        env = Envelope()
+        env.session_close.CopyFrom(SessionClose(action_id=action_id, reason=reason))
+        await self._send_envelope("kernel", env)
 
     async def send_fragmented(self, target: str, payload: bytes, chunk_size: int) -> None:
         """Split `payload` into FLAG_FRAGMENTED frames of at most `chunk_size`

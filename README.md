@@ -83,6 +83,13 @@ ack = await client.register("weather", manifest, jwt_token)
 await client.subscribe(["alarm.fired"])
 ack = await client.publish_event("weather.updated", b'{"city":"Berlin"}', 5_000)
 latency = await client.ping()
+
+resp = await client.send_action("get_weather", b'{"city":"Berlin"}', 5_000)
+
+action_id = await client.send_action_streaming("transcribe", 30_000)
+await client.send_request_chunk(action_id, 0, b"hi", True)
+await client.send_response_chunk(action_id, 0, b"ok")
+await client.close_session(action_id, "done")
 ```
 
 `publish_event` requires `PERMISSION_EVENT_PUBLISH`; `timeout_ms=0` uses the
@@ -91,6 +98,17 @@ inspect `ack.status` yourself (`EVENT_PUBLISH_OK`/`ERROR`/`PERMISSION_DENY`) —
 and only raises on a kernel `Error` envelope or on timeout. Requests and
 responses are matched on a single connection; drive request/response traffic
 from one task.
+
+`send_action` follows the same `timeout_ms=0` → 30s-default convention and
+returns the kernel's `ActionResponse` as-is (inspect `.status` yourself). It
+raises `RuntimeError` on a kernel `Error` envelope or an `ActionStreamAbort`
+for this `action_id`, and `TimeoutError` on deadline expiry.
+`send_action_streaming` fires an `ActionRequest(streaming=True)` and returns
+its generated `action_id` immediately, without waiting for any response —
+drive `recv()`/chunks yourself afterward. `send_request_chunk`,
+`send_response_chunk`, and `close_session` are fire-and-forget sends (no
+response awaited); `close_session` has no `final` flag — the response side
+of a stream is terminated by an ordinary `ActionResponse`.
 
 ## Development
 
