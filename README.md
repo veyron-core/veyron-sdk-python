@@ -10,9 +10,12 @@ HMAC-SHA256 frame authentication, and fragmentation.
 ## Protocol source
 
 `proto/veyron_protocol.proto` is vendored from
-[`veyron-wire`](https://crates.io/crates/veyron-wire)'s `wire/proto/`. It's
-copied by hand, not path-referenced — re-sync it when the protocol changes
-upstream, then regenerate `veyron/veyron_protocol_pb2.py`.
+[`veyron-wire`](https://crates.io/crates/veyron-wire)'s `proto/` (wire
+protocol **v1.4** as of the latest sync). It's copied by hand, not
+path-referenced — re-sync it when the protocol changes upstream, then
+regenerate `veyron/veyron_protocol_pb2.py` (the kernel's
+`scripts/gen_proto_python.py` does both; the kernel's R8-05 test guards
+byte identity).
 
 ## Install
 
