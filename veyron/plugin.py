@@ -1,78 +1,144 @@
 import asyncio
 import os
 import time
-from abc import ABC, abstractmethod
 from typing import Optional
 
 from .client import VeyronClient
-from .veyron_protocol_pb2 import Envelope, PluginManifest, Pong
+from .errors import VeyronError, VeyronPermissionDenied
+from .veyron_protocol_pb2 import Envelope, Event, PluginManifest, Pong
 
 
 def _default_socket_path() -> str:
     """Per-user socket location, mirroring the kernel's default_socket_path():
-    XDG_RUNTIME_DIR → /run/user/<uid> → ~/.veyron/run. Never the world-writable
-    shared /tmp (BUG-006)."""
+    XDG_RUNTIME_DIR → /run/user/<uid> → ~/.veyron/run (created 0700 if used).
+    Never the world-writable shared /tmp (BUG-006)."""
     runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
     if runtime_dir:
         return os.path.join(runtime_dir, "veyron.sock")
     run_user = f"/run/user/{os.getuid()}"
     if os.path.isdir(run_user):
         return os.path.join(run_user, "veyron.sock")
-    return os.path.join(os.path.expanduser("~"), ".veyron", "run", "veyron.sock")
+    # Last-resort private dir, created like veyron-wire's default_private_dir
+    # so it exists (and is not world-readable) by the time we return it.
+    run_dir = os.path.join(os.path.expanduser("~"), ".veyron", "run")
+    os.makedirs(run_dir, exist_ok=True)
+    os.chmod(run_dir, 0o700)
+    return os.path.join(run_dir, "veyron.sock")
 
 
-class Plugin(ABC):
-    """Abstract base for Veyron plugins. Subclass and implement on_message."""
+class Plugin:
+    """Base class for Veyron plugins. Only `id` and `on_message` are mandatory;
+    everything else has a sensible default. Mirrors the Rust `Plugin` trait.
 
-    plugin_id: str
-    manifest: PluginManifest = PluginManifest()
-    jwt_token: str = ""
+    Lifecycle driven by `run` / `run_with` / `serve`:
 
-    def __init__(self):
-        socket_path = os.environ.get("VEYRON_SOCKET_PATH") or _default_socket_path()
-        if not self.jwt_token:
-            self.jwt_token = os.environ.get("VEYRON_JWT_TOKEN", "")
-        secret_env = os.environ.get("VEYRON_JWT_SECRET")
-        secret = secret_env.encode() if secret_env else None
-        self._client = VeyronClient(socket_path, secret=secret)
+    1. Connect to the kernel socket (`VEYRON_SOCKET_PATH` or the per-user
+       default; never the shared world-writable `/tmp`).
+    2. Register, presenting `VEYRON_JWT_TOKEN` if set. When
+       `VEYRON_JWT_SECRET` is also set, all subsequent frames carry an
+       HMAC-SHA256 tag.
+    3. Call `on_init`.
+    4. Receive loop: Ping is answered automatically; `PluginShutdown` exits
+       the loop; Events are passed to `on_event` and acknowledged when it
+       returns successfully; everything else goes to `on_message`.
+    5. Call `on_shutdown`.
+    """
 
-    async def on_init(self) -> None:
-        """Called once after successful registration."""
+    def __init__(self) -> None:
+        # set by serve(); available to handlers for convenience
+        self._client: Optional[VeyronClient] = None
 
-    @abstractmethod
-    async def on_message(self, envelope: Envelope) -> None:
-        """Called for every incoming message."""
+    def id(self) -> str:
+        """Unique plugin id, e.g. "weather". Override, or set the legacy
+        `plugin_id` class attribute."""
+        val = getattr(self, "plugin_id", None)
+        if val:
+            return val
+        raise NotImplementedError(
+            "Plugin must define id() or the `plugin_id` class attribute"
+        )
+
+    def version(self) -> str:
+        """Semver version reported at registration."""
+        return "1.0.0"
+
+    def manifest(self) -> PluginManifest:
+        """Declared capabilities: permissions, actions, event subscriptions,
+        IPC targets. Override, or set the legacy `manifest` class attribute."""
+        val = getattr(type(self), "manifest", None)
+        # legacy class-attribute style shadows the method; accept it as fallback
+        if val is not None and not callable(val):
+            return val
+        return PluginManifest()
+
+    async def on_init(self, client: VeyronClient) -> None:
+        """Called once after successful registration, before the receive loop.
+        Use the client to subscribe, negotiate audio streams, etc."""
+
+    async def on_message(self, envelope: Envelope) -> Optional[Envelope]:
+        """Called for every inbound envelope not handled by the SDK
+        (Ping/Pong, PluginShutdown and Event have dedicated handling).
+        Return an envelope to send it back to the kernel."""
+        return None
+
+    async def on_event(self, event: Event) -> Optional[Envelope]:
+        """Called for each delivered Event. Returning normally makes the SDK
+        send an EventAck so the kernel stops retrying; raising skips the ack
+        (kernel retries). Return an envelope to send additional traffic."""
+        return None
 
     async def on_shutdown(self) -> None:
-        """Called before the plugin exits."""
-
-    async def on_event(self, event) -> None:
-        """Called for each delivered Event. Default is a no-op. Returning
-        normally acks the event; raising skips the ack (kernel retries)."""
+        """Called once when the receive loop ends (kernel shutdown request,
+        disconnect, or handler error)."""
 
     async def run(self) -> None:
-        await self._client.connect()
+        """Connect, register and serve until shutdown. Socket path comes from
+        `VEYRON_SOCKET_PATH`, falling back to the per-user default."""
+        socket_path = os.environ.get("VEYRON_SOCKET_PATH") or _default_socket_path()
+        await self.run_with(socket_path)
+
+    async def run_with(self, socket_path: str) -> None:
+        """Like `run` against an explicit socket path. JWT credentials are
+        still read from `VEYRON_JWT_TOKEN` / `VEYRON_JWT_SECRET`."""
+        token = os.environ.get("VEYRON_JWT_TOKEN", "")
+        secret = os.environ.get("VEYRON_JWT_SECRET")
+        if secret:
+            client = await VeyronClient.connect_with_secret(socket_path, secret.encode())
+        else:
+            client = await VeyronClient.connect_with_secret(socket_path, None)
         try:
-            ack = await self._client.register(
-                self.plugin_id, self.manifest, self.jwt_token
-            )
-            if not ack.HasField("plugin_register_ack"):
-                raise RuntimeError(
-                    f"registration failed: {ack.error.message or ack}"
-                )
-            if not ack.plugin_register_ack.accepted:
-                raise RuntimeError(
-                    f"registration rejected: {ack.plugin_register_ack.reject_reason}"
-                )
-            await self.on_init()
+            await self.serve(client, token)
+        finally:
+            await client.close()
+
+    async def serve(self, client: VeyronClient, jwt_token: str) -> None:
+        """Register on an existing client and run the receive loop. Building
+        block for `run`; also useful in tests."""
+        self._client = client
+        ack = await client.register_full(self.id(), self.version(), self.manifest(), jwt_token)
+        if not ack.accepted:
+            raise VeyronPermissionDenied(f"registration rejected: {ack.reject_reason}")
+
+        try:
+            await self.on_init(client)
         except BaseException:
-            await self._client.close()
+            try:
+                await self.on_shutdown()
+            except BaseException:
+                pass
             raise
+
+        # A handler error ends the receive loop (see on_shutdown's contract):
+        # it's the plugin signalling a fatal condition. Captured here so it
+        # propagates out of serve() after on_shutdown() runs, instead of being
+        # silently swallowed by the `break` (mirrors the Rust SDK's serve()).
+        handler_err: Optional[BaseException] = None
         try:
             while True:
-                env = await self._client.recv()
-                if env.HasField("plugin_shutdown"):
-                    break
+                try:
+                    env = await client.recv()
+                except Exception:
+                    break  # disconnect / EOF
                 if env.HasField("ping"):
                     # Answer the kernel watchdog directly — a supervised plugin
                     # whose last Pong goes stale is SIGKILLed (AUDIT H-02).
@@ -82,18 +148,30 @@ class Plugin(ABC):
                             server_timestamp=int(time.time() * 1000),
                         )
                     )
-                    await self._client.send("kernel", pong)
+                    await client.send("kernel", pong)
                     continue
+                if env.HasField("plugin_shutdown"):
+                    break
                 if env.HasField("event"):
+                    event = env.event
                     # On handler error no ack is sent — the kernel will retry
                     # (mirrors the Rust SDK; T-06).
                     try:
-                        await self.on_event(env.event)
-                        await self._client.ack_event(env.event.event_id)
+                        reply = await self.on_event(event)
                     except Exception:
-                        pass
+                        continue
+                    await client.ack_event(event.event_id)
+                    if reply is not None:
+                        await client.send("kernel", reply)
                     continue
-                await self.on_message(env)
+                try:
+                    reply = await self.on_message(env)
+                except BaseException as e:
+                    handler_err = e
+                    break
+                if reply is not None:
+                    await client.send("kernel", reply)
         finally:
             await self.on_shutdown()
-            await self._client.close()
+        if handler_err is not None:
+            raise handler_err

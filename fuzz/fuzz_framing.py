@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 with atheris.instrument_imports():
     from veyron.framing import read_frame
+    from veyron.errors import VeyronError
 
 FIXED_KEY = bytes(range(32))
 
@@ -25,12 +26,12 @@ FIXED_KEY = bytes(range(32))
 def test_one_input(data: bytes) -> None:
     try:
         read_frame(io.BytesIO(data))
-    except ValueError:
+    except VeyronError:
         pass  # rejecting malformed input is expected, correct behavior
 
     try:
         read_frame(io.BytesIO(data), session_key=FIXED_KEY)
-    except ValueError:
+    except VeyronError:
         pass
 
 

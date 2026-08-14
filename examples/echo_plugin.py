@@ -9,6 +9,7 @@ Run (with a kernel listening on the default socket):
 """
 import asyncio
 import json
+from typing import Optional
 
 from veyron import Plugin
 from veyron.veyron_protocol_pb2 import (
@@ -23,40 +24,50 @@ from veyron.veyron_protocol_pb2 import (
 
 
 class EchoPlugin(Plugin):
-    plugin_id = "echo-plugin"
-    manifest = PluginManifest(
-        permissions=["PERMISSION_EVENT_PUBLISH"],
-        actions=["echo", "stream_echo", "publish_test"],
-        events=["system.low_memory"],
-    )
+    def id(self) -> str:
+        return "echo-plugin"
+
+    def manifest(self) -> PluginManifest:
+        return PluginManifest(
+            permissions=["PERMISSION_EVENT_PUBLISH"],
+            actions=["echo", "stream_echo", "publish_test"],
+            events=["system.low_memory"],
+        )
 
     def __init__(self) -> None:
         super().__init__()
         self._stream_action_id = None
         self._stream_chunks: dict[int, bytes] = {}
 
-    async def on_init(self) -> None:
-        print(f"[{self.plugin_id}] registered, subscribing to events")
-        await self._client.subscribe(list(self.manifest.events))
+    async def on_init(self, client) -> None:
+        print(f"[{self.id()}] registered, subscribing to events")
+        await client.subscribe(list(self.manifest().events))
 
-    async def on_message(self, envelope: Envelope) -> None:
+    async def on_message(self, envelope: Envelope) -> Optional[Envelope]:
         kind = envelope.WhichOneof("payload")
 
         if kind == "action_request":
-            await self._handle_action(envelope)
-        elif kind == "action_request_chunk":
+            return await self._handle_action(envelope)
+        if kind == "action_request_chunk":
             await self._handle_request_chunk(envelope.action_request_chunk)
-        elif kind == "event":
-            await self._handle_event(envelope)
-        elif kind == "session_close":
+            return None
+        if kind == "session_close":
             # Proves the subprocess correctly discriminates SessionClose
             # from ActionStreamAbort over the real wire (P7-03 unit tests
             # already cover the discrimination logic itself).
             print(f"session_closed:{envelope.session_close.reason}", flush=True)
-        else:
-            print(f"[{self.plugin_id}] unhandled message: {kind}")
+            return None
+        print(f"[{self.id()}] unhandled message: {kind}")
+        return None
 
-    async def _handle_action(self, envelope: Envelope) -> None:
+    async def on_event(self, event: Event) -> Optional[Envelope]:
+        print(f"[{self.id()}] event {event.event_type}: {event.payload_json}")
+        return None
+
+    async def on_shutdown(self) -> None:
+        print(f"[{self.id()}] shutting down")
+
+    async def _handle_action(self, envelope: Envelope) -> Optional[Envelope]:
         req = envelope.action_request
         if req.action == "stream_echo" and req.streaming:
             # Accept the session immediately, before any chunks arrive.
@@ -66,15 +77,13 @@ class EchoPlugin(Plugin):
             # src/plugins/registry.rs resolve_action_response.
             self._stream_action_id = req.action_id
             self._stream_chunks = {}
-            accept = Envelope(sender_id=self.plugin_id)
+            accept = Envelope(sender_id=self.id())
             accept.action_response.CopyFrom(
                 ActionResponse(action_id=req.action_id, status=ActionStatus.ACTION_OK)
             )
-            await self._client.send("kernel", accept)
-            return
+            return accept
         if req.action == "publish_test":
-            await self._handle_publish_test(req)
-            return
+            return await self._handle_publish_test(req)
 
         if req.action != "echo":
             resp = ActionResponse(
@@ -89,16 +98,17 @@ class EchoPlugin(Plugin):
                 status=ActionStatus.ACTION_OK,
                 data_json=json.dumps({"echo": params}).encode(),
             )
-        out = Envelope(sender_id=self.plugin_id)
+        out = Envelope(sender_id=self.id())
         out.action_response.CopyFrom(resp)
-        await self._client.send("kernel", out)
+        return out
 
     async def _handle_request_chunk(self, chunk) -> None:
         """Accumulates chunks by seq until `final`, then replies with 2
         ActionResponseChunks (request bytes split roughly in half)
         followed by a terminal ActionResponse. In-memory, one streaming
         action at a time — sufficient for a round-trip test, not a
-        general pattern."""
+        general pattern. Multi-send cannot be a single return value, so
+        this path drives the client directly."""
         if chunk.action_id != self._stream_action_id:
             return
         self._stream_chunks[chunk.seq] = chunk.chunk
@@ -109,13 +119,13 @@ class EchoPlugin(Plugin):
         mid = len(full) // 2
         halves = (full[:mid], full[mid:])
         for seq, part in enumerate(halves):
-            rc = Envelope(sender_id=self.plugin_id)
+            rc = Envelope(sender_id=self.id())
             rc.action_response_chunk.CopyFrom(
                 ActionResponseChunk(action_id=self._stream_action_id, seq=seq, chunk=part)
             )
             await self._client.send("kernel", rc)
 
-        out = Envelope(sender_id=self.plugin_id)
+        out = Envelope(sender_id=self.id())
         out.action_response.CopyFrom(
             ActionResponse(
                 action_id=self._stream_action_id,
@@ -128,7 +138,7 @@ class EchoPlugin(Plugin):
         self._stream_action_id = None
         self._stream_chunks = {}
 
-    async def _handle_publish_test(self, req) -> None:
+    async def _handle_publish_test(self, req) -> Envelope:
         try:
             ack = await self._client.publish_event("test_publish", req.params_json, 0)
             if ack.status == EventPublishStatus.EVENT_PUBLISH_OK:
@@ -143,16 +153,9 @@ class EchoPlugin(Plugin):
             resp = ActionResponse(
                 action_id=req.action_id, status=ActionStatus.ACTION_ERROR, error=str(e)
             )
-        out = Envelope(sender_id=self.plugin_id)
+        out = Envelope(sender_id=self.id())
         out.action_response.CopyFrom(resp)
-        await self._client.send("kernel", out)
-
-    async def _handle_event(self, envelope: Envelope) -> None:
-        evt = envelope.event
-        print(f"[{self.plugin_id}] event {evt.event_type}: {evt.payload_json}")
-
-    async def on_shutdown(self) -> None:
-        print(f"[{self.plugin_id}] shutting down")
+        return out
 
 
 async def main() -> None:

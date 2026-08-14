@@ -5,6 +5,7 @@ except ImportError:
 
 try:
     from .client import VeyronClient
+    from .errors import VeyronError
     from .plugin import Plugin
 except (ImportError, _ProtoVersionError) as _import_err:  # missing deps or protobuf version mismatch
 
@@ -18,8 +19,16 @@ except (ImportError, _ProtoVersionError) as _import_err:  # missing deps or prot
         return type(name, (), {"__init__": _raise, "__init_subclass__": classmethod(_raise)})
 
     VeyronClient = _unavailable("VeyronClient")  # type: ignore[assignment,misc]
+    VeyronError = _unavailable("VeyronError")  # type: ignore[assignment,misc]
     Plugin = _unavailable("Plugin")  # type: ignore[assignment,misc]
 
 from .framing import pack_frame, read_frame, async_read_frame
 
-__all__ = ["VeyronClient", "Plugin", "pack_frame", "read_frame", "async_read_frame"]
+__all__ = [
+    "VeyronClient",
+    "VeyronError",
+    "Plugin",
+    "pack_frame",
+    "read_frame",
+    "async_read_frame",
+]

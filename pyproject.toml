@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "veyron-sdk"
-version = "0.1.1"
+version = "0.1.4"
 description = "Veyron plugin SDK for Python"
 readme = "README.md"
 license = "MIT"
@@ -50,6 +50,12 @@ Homepage = "https://github.com/veyron-core/veyron"
 Repository = "https://github.com/veyron-core/veyron"
 Documentation = "https://github.com/veyron-core/veyron/blob/main/docs"
 Issues = "https://github.com/veyron-core/veyron/issues"
+
+[tool.pytest.ini_options]
+# tests/ imports the in-tree package directly (no install needed).
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 
 [tool.hatch.build.targets.wheel]
 packages = ["veyron"]

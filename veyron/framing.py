@@ -7,6 +7,15 @@ from typing import Optional
 
 import zstandard
 
+from .errors import (
+    VeyronFrameCrcMismatch,
+    VeyronFrameMagicMismatch,
+    VeyronFrameReadTimeout,
+    VeyronInternal,
+    VeyronIoError,
+    VeyronPayloadTooLarge,
+)
+
 MAGIC = 0x5652
 HEADER_FMT = ">HHI32sI"  # magic, flags, length, target, crc32
 HEADER_SIZE = struct.calcsize(HEADER_FMT)  # 44
@@ -88,40 +97,79 @@ def verify_tag(key: bytes, header: bytes, payload: bytes, tag: bytes) -> bool:
 # Frame encoding / decoding
 # ---------------------------------------------------------------------------
 
+def _target_bytes(target: str) -> bytes:
+    return target.encode()[:32].ljust(32, b"\x00")[:32]
+
+
+def header_bytes_for(flags: int, target_bytes: bytes, payload: bytes) -> bytes:
+    checksum = crc32(payload) & 0xFFFFFFFF
+    return struct.pack(HEADER_FMT, MAGIC, flags, len(payload), target_bytes, checksum)
+
+
+def _compress(payload: bytes) -> bytes:
+    return zstandard.ZstdCompressor(level=3).compress(payload)
+
+
+def _decompress(payload: bytes) -> bytes:
+    """Bounded zstd decompression mirroring wire/src/framing.rs read_frame_body."""
+    decompressor = zstandard.ZstdDecompressor()
+    try:
+        out = decompressor.decompress(payload, max_output_size=MAX_PAYLOAD)
+    except zstandard.ZstdError as e:
+        raise VeyronInternal(f"decompress frame: {e}") from e
+    if len(out) > MAX_PAYLOAD:
+        raise VeyronPayloadTooLarge(len(out))
+    return out
+
+
 def pack_frame(
     target: str,
     payload: bytes,
     flags: int = 0,
     session_key: Optional[bytes] = None,
 ) -> bytes:
+    """Encode one outbound frame. Mirrors veyron-wire's write_frame_raw:
+    MAC is computed over the *plaintext* header+payload first, then payloads
+    >= COMPRESS_THRESHOLD (and not already compressed / raw binary) are
+    zstd-compressed at level 3; CRC32 covers the wire (possibly compressed)
+    bytes."""
     if len(payload) > MAX_PAYLOAD:
-        raise ValueError(f"payload too large: {len(payload)} > {MAX_PAYLOAD}")
+        raise VeyronPayloadTooLarge(len(payload))
     if session_key is not None:
         flags |= FLAG_MAC_PRESENT
-    target_bytes = target.encode()[:32].ljust(32, b"\x00")[:32]
-    checksum = crc32(payload) & 0xFFFFFFFF
-    header = struct.pack(HEADER_FMT, MAGIC, flags, len(payload), target_bytes, checksum)
-    frame = header + payload
+
+    tag = None
     if session_key is not None:
-        frame += compute_tag(session_key, header, payload)
+        # MAC over the pre-compression header + payload, so the receiver can
+        # rebuild the plaintext header and verify (matches wire crate).
+        plain_header = header_bytes_for(flags, _target_bytes(target), payload)
+        tag = compute_tag(session_key, plain_header, payload)
+
+    wire_payload = payload
+    wire_flags = flags
+    if (
+        len(payload) >= COMPRESS_THRESHOLD
+        and not (flags & FLAG_COMPRESSED)
+        and not (flags & FLAG_RAW_BINARY)
+    ):
+        compressed = _compress(payload)
+        if len(compressed) < len(payload):
+            wire_payload = compressed
+            wire_flags = flags | FLAG_COMPRESSED
+
+    wire_crc = crc32(wire_payload) & 0xFFFFFFFF
+    wire_header = struct.pack(
+        HEADER_FMT, MAGIC, wire_flags, len(wire_payload), _target_bytes(target), wire_crc
+    )
+    frame = wire_header + wire_payload
+    if tag is not None:
+        frame += tag
     return frame
-
-
-def _decompress(payload: bytes) -> bytes:
-    """Bounded zstd decompression mirroring src/ipc/framing.rs:234."""
-    decompressor = zstandard.ZstdDecompressor()
-    try:
-        out = decompressor.decompress(payload, max_output_size=MAX_PAYLOAD)
-    except zstandard.ZstdError as e:
-        raise ValueError(f"zstd decompression failed: {e}") from e
-    if len(out) > MAX_PAYLOAD:
-        raise ValueError(f"decompressed payload too large: {len(out)} > {MAX_PAYLOAD}")
-    return out
 
 
 def _normalize(flags: int, target_bytes: bytes, payload: bytes):
     """If FLAG_COMPRESSED, decompress and rebuild the plaintext header the MAC
-    was computed over. Mirrors src/ipc/framing.rs:228-241."""
+    was computed over. Mirrors wire/src/framing.rs read_frame_body."""
     if not flags & FLAG_COMPRESSED:
         return flags, header_bytes_for(flags, target_bytes, payload), payload
     plain = _decompress(payload)
@@ -130,40 +178,35 @@ def _normalize(flags: int, target_bytes: bytes, payload: bytes):
     return plain_flags, plain_header, plain
 
 
-def header_bytes_for(flags: int, target_bytes: bytes, payload: bytes) -> bytes:
-    checksum = crc32(payload) & 0xFFFFFFFF
-    return struct.pack(HEADER_FMT, MAGIC, flags, len(payload), target_bytes, checksum)
-
-
 def read_frame(stream, session_key: Optional[bytes] = None) -> bytes:
     """Read one frame from a synchronous, file-like stream (e.g. io.BytesIO)
     and return the payload. No timeout: intended for already-buffered input,
     not a live socket — use async_read_frame for that."""
     header_bytes = stream.read(HEADER_SIZE)
     if len(header_bytes) < HEADER_SIZE:
-        raise ValueError("truncated frame header")
+        raise VeyronIoError("truncated frame header")
     magic, flags, length, target_bytes, stored_crc = struct.unpack(HEADER_FMT, header_bytes)
     if magic != MAGIC:
-        raise ValueError(f"bad magic: 0x{magic:04x}")
+        raise VeyronFrameMagicMismatch()
     if length > MAX_PAYLOAD:
-        raise ValueError(f"payload too large: {length}")
+        raise VeyronPayloadTooLarge(length)
     payload = stream.read(length) if length > 0 else b""
     if len(payload) < length:
-        raise ValueError("truncated frame payload")
+        raise VeyronIoError("truncated frame payload")
     computed = crc32(payload) & 0xFFFFFFFF
     if computed != stored_crc:
-        raise ValueError(f"CRC mismatch: got 0x{computed:08x}, want 0x{stored_crc:08x}")
+        raise VeyronFrameCrcMismatch()
 
     flags, header_bytes, payload = _normalize(flags, target_bytes, payload)
 
     if flags & FLAG_MAC_PRESENT:
         tag = stream.read(32)
         if len(tag) < 32:
-            raise ValueError("truncated MAC tag")
+            raise VeyronIoError("truncated MAC tag")
         if session_key is not None and not verify_tag(session_key, header_bytes, payload, tag):
-            raise ValueError("MAC verification failed")
+            raise VeyronInternal("frame MAC verification failed")
     elif session_key is not None:
-        raise ValueError("MAC missing on secured connection")
+        raise VeyronInternal("MAC missing on secured connection")
     return payload
 
 
@@ -184,25 +227,25 @@ async def async_read_frame(
         header_bytes = first_byte + await reader.readexactly(HEADER_SIZE - 1)
         magic, flags, length, target_bytes, stored_crc = struct.unpack(HEADER_FMT, header_bytes)
         if magic != MAGIC:
-            raise ValueError(f"bad magic: 0x{magic:04x}")
+            raise VeyronFrameMagicMismatch()
         if length > MAX_PAYLOAD:
-            raise ValueError(f"payload too large: {length}")
+            raise VeyronPayloadTooLarge(length)
         payload = await reader.readexactly(length) if length > 0 else b""
         computed = crc32(payload) & 0xFFFFFFFF
         if computed != stored_crc:
-            raise ValueError(f"CRC mismatch: got 0x{computed:08x}, want 0x{stored_crc:08x}")
+            raise VeyronFrameCrcMismatch()
 
         flags, header_bytes2, payload = _normalize(flags, target_bytes, payload)
 
         if flags & FLAG_MAC_PRESENT:
             tag = await reader.readexactly(32)
             if session_key is not None and not verify_tag(session_key, header_bytes2, payload, tag):
-                raise ValueError("MAC verification failed")
+                raise VeyronInternal("frame MAC verification failed")
         elif session_key is not None:
-            raise ValueError("MAC missing on secured connection")
+            raise VeyronInternal("MAC missing on secured connection")
         return flags, payload
 
     try:
         return await asyncio.wait_for(_read_body(), timeout=frame_timeout)
     except asyncio.TimeoutError:
-        raise ValueError("veyron: frame read timed out") from None
+        raise VeyronFrameReadTimeout() from None
