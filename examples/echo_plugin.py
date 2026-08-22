@@ -5,14 +5,14 @@ streaming, and publish-from-plugin), event subscription, and SessionClose
 dispatch.
 
 Run (with a kernel listening on the default socket):
-    VEYRON_JWT_TOKEN=<token> python -m examples.echo_plugin
+    VYN_JWT_TOKEN=<token> python -m examples.echo_plugin
 """
 import asyncio
 import json
 from typing import Optional
 
-from veyron import Plugin
-from veyron.veyron_protocol_pb2 import (
+from vynkor import Plugin
+from vynkor.vynkor_protocol_pb2 import (
     ActionResponse,
     ActionResponseChunk,
     ActionStatus,

@@ -1,4 +1,4 @@
-"""P7-03: VeyronClient.recv() distinguishes SessionClose from
+"""P7-03: VynkorClient.recv() distinguishes SessionClose from
 ActionStreamAbort — mirrors sdk/rust/tests/protocol.rs's
 recv_distinguishes_session_close_from_stream_abort."""
 import asyncio
@@ -6,9 +6,9 @@ import socket
 
 import pytest
 
-from veyron import VeyronClient
-from veyron.framing import pack_frame
-from veyron.veyron_protocol_pb2 import Envelope
+from vynkor import VynkorClient
+from vynkor.framing import pack_frame
+from vynkor.vynkor_protocol_pb2 import Envelope
 
 
 def _send_kernel_side(sock, env: Envelope) -> None:
@@ -19,7 +19,7 @@ def _send_kernel_side(sock, env: Envelope) -> None:
 async def _make_client():
     sock_a, sock_b = socket.socketpair()
     reader, writer = await asyncio.open_connection(sock=sock_a)
-    client = VeyronClient("unused")
+    client = VynkorClient("unused")
     client._reader = reader
     client._writer = writer
     return client, sock_b

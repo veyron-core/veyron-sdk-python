@@ -1,4 +1,4 @@
-"""P7-02: VeyronClient.send_action/send_action_streaming/send_request_chunk/
+"""P7-02: VynkorClient.send_action/send_action_streaming/send_request_chunk/
 send_response_chunk/close_session — mirrors sdk/rust/src/client.rs's
 send_action tests plus streaming-specific additions."""
 import asyncio
@@ -8,10 +8,10 @@ import time
 
 import pytest
 
-from veyron import VeyronClient
-from veyron.errors import VeyronInternal, VeyronTimeout
-from veyron.framing import pack_frame, read_frame
-from veyron.veyron_protocol_pb2 import (
+from vynkor import VynkorClient
+from vynkor.errors import VeyronInternal, VeyronTimeout
+from vynkor.framing import pack_frame, read_frame
+from vynkor.vynkor_protocol_pb2 import (
     Envelope,
     ACTION_OK,
 )
@@ -32,7 +32,7 @@ def _send_kernel_side(sock, env: Envelope) -> None:
 async def _make_client():
     sock_a, sock_b = socket.socketpair()
     reader, writer = await asyncio.open_connection(sock=sock_a)
-    client = VeyronClient("unused")
+    client = VynkorClient("unused")
     client._reader = reader
     client._writer = writer
     return client, sock_b

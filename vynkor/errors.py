@@ -1,37 +1,37 @@
-"""SDK error types, mirroring veyron-wire's `WireError` enum.
+"""SDK error types, mirroring vynkor-wire's `WireError` enum.
 
 Rust `WireError` is a single enum with payload-carrying variants; Python gets
-a hierarchy instead — one exception class per variant, all under `VeyronError`
+a hierarchy instead — one exception class per variant, all under `VynkorError`
 so callers can catch the base or a specific variant.
 """
 
 
-class VeyronError(Exception):
+class VynkorError(Exception):
     """Base class for every Veyron SDK error (mirrors `WireError`)."""
 
 
-class VeyronIoError(VeyronError):
+class VeyronIoError(VynkorError):
     """Underlying I/O failure (mirrors `WireError::Io`)."""
 
 
-class VeyronProtoError(VeyronError):
+class VeyronProtoError(VynkorError):
     """Protobuf encode/decode failure (mirrors `WireError::Proto`)."""
 
 
-class VeyronFrameMagicMismatch(VeyronError):
+class VeyronFrameMagicMismatch(VynkorError):
     """Frame magic != 0x5652 (mirrors `WireError::FrameMagicMismatch`)."""
 
 
-class VeyronFrameCrcMismatch(VeyronError):
+class VeyronFrameCrcMismatch(VynkorError):
     """Frame CRC32 mismatch (mirrors `WireError::FrameCrcMismatch`)."""
 
 
-class VeyronFrameReadTimeout(VeyronError):
+class VeyronFrameReadTimeout(VynkorError):
     """Timed out reading a frame body once it started (mirrors
     `WireError::FrameReadTimeout`)."""
 
 
-class VeyronPayloadTooLarge(VeyronError):
+class VeyronPayloadTooLarge(VynkorError):
     """Payload exceeds the protocol limit (mirrors `WireError::PayloadTooLarge`)."""
 
     def __init__(self, size: int):
@@ -39,14 +39,14 @@ class VeyronPayloadTooLarge(VeyronError):
         super().__init__(f"payload too large: {size} bytes")
 
 
-class VeyronTimeout(VeyronError):
+class VeyronTimeout(VynkorError):
     """Operation timed out (mirrors `WireError::Timeout`)."""
 
     def __init__(self, message: str = "operation timed out"):
         super().__init__(message)
 
 
-class VeyronPermissionDenied(VeyronError):
+class VeyronPermissionDenied(VynkorError):
     """Permission denied; message carries the reason (mirrors
     `WireError::PermissionDenied`)."""
 
@@ -54,7 +54,7 @@ class VeyronPermissionDenied(VeyronError):
         super().__init__(f"permission denied: {message}")
 
 
-class VeyronInternal(VeyronError):
+class VeyronInternal(VynkorError):
     """Internal/protocol error; message carries details (mirrors
     `WireError::Internal`)."""
 
@@ -63,7 +63,7 @@ class VeyronInternal(VeyronError):
 
 
 __all__ = [
-    "VeyronError",
+    "VynkorError",
     "VeyronIoError",
     "VeyronProtoError",
     "VeyronFrameMagicMismatch",

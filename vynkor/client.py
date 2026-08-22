@@ -21,7 +21,7 @@ from .framing import (
     pack_frame,
     parse_frag_header,
 )
-from .veyron_protocol_pb2 import (
+from .vynkor_protocol_pb2 import (
     ActionRequest,
     ActionRequestChunk,
     ActionResponse,
@@ -77,12 +77,12 @@ class _ReassemblyBuf:
         return b"".join(self.fragments[seq] for seq in range(self.total))
 
 
-class VeyronClient:
+class VynkorClient:
     """Async client for the Veyron kernel IPC protocol.
 
     Construct with the classmethods [`connect`], [`connect_with_secret`] and
     [`connect_from_env`] (mirroring the Rust SDK), or the classic
-    `VeyronClient(socket_path) + await client.connect()` pattern, then
+    `VynkorClient(socket_path) + await client.connect()` pattern, then
     [`register`] / [`register_full`] before any other traffic.
     """
 
@@ -98,45 +98,45 @@ class VeyronClient:
 
     # ── Construction ────────────────────────────────────────────────
 
-    async def connect(self, socket_path: Optional[str] = None) -> Optional["VeyronClient"]:
+    async def connect(self, socket_path: Optional[str] = None) -> Optional["VynkorClient"]:
         """Open the connection. Two forms:
 
-        - instance: `c = VeyronClient(path); await c.connect()` (returns None)
-        - class:    `c = await VeyronClient.connect(path)` (returns a connected client)
+        - instance: `c = VynkorClient(path); await c.connect()` (returns None)
+        - class:    `c = await VynkorClient.connect(path)` (returns a connected client)
 
-        Mirrors Rust's `VeyronClient::connect(socket_path)` constructor while
+        Mirrors Rust's `VynkorClient::connect(socket_path)` constructor while
         keeping the historical instance-level pattern working.
         """
-        if isinstance(self, VeyronClient):
+        if isinstance(self, VynkorClient):
             if socket_path is not None:
                 self.socket_path = socket_path
             self._reader, self._writer = await asyncio.open_unix_connection(self.socket_path)
             return None
         # Class form: `self` is actually the socket path string.
-        return await VeyronClient.connect_with_secret(self, None)
+        return await VynkorClient.connect_with_secret(self, None)
 
     @classmethod
     async def connect_with_secret(
         cls, socket_path: str, secret: Optional[bytes]
-    ) -> "VeyronClient":
+    ) -> "VynkorClient":
         client = cls(socket_path, secret=secret)
         client._reader, client._writer = await asyncio.open_unix_connection(socket_path)
         return client
 
     @classmethod
-    async def connect_from_env(cls) -> "VeyronClient":
-        """Connect using VEYRON_SOCKET_PATH (falling back to the per-user
-        default) and VEYRON_JWT_SECRET (optional; enables frame MACs)."""
+    async def connect_from_env(cls) -> "VynkorClient":
+        """Connect using VYN_SOCKET_PATH (falling back to the per-user
+        default) and VYN_JWT_SECRET (optional; enables frame MACs)."""
         from .plugin import _default_socket_path
 
-        socket_path = os.environ.get("VEYRON_SOCKET_PATH") or _default_socket_path()
-        secret = os.environ.get("VEYRON_JWT_SECRET")
+        socket_path = os.environ.get("VYN_SOCKET_PATH") or _default_socket_path()
+        secret = os.environ.get("VYN_JWT_SECRET")
         if secret:
             return await cls.connect_with_secret(socket_path, secret.encode())
         return await cls.connect_with_secret(socket_path, None)
 
     @classmethod
-    def from_stream(cls, reader, writer, secret: Optional[bytes] = None) -> "VeyronClient":
+    def from_stream(cls, reader, writer, secret: Optional[bytes] = None) -> "VynkorClient":
         """Wrap an existing (reader, writer) asyncio stream pair. Useful for
         tests (`socket.socketpair()`) and custom transports."""
         client = cls("", secret=secret)
@@ -245,7 +245,7 @@ class VeyronClient:
         """Receive the next complete frame as (flags, payload), transparently
         reassembling FLAG_FRAGMENTED frames. Raw-binary frames are returned
         as-is (check `flags & FLAG_RAW_BINARY`). Mirrors the rust SDK's
-        VeyronClient::recv_frame."""
+        VynkorClient::recv_frame."""
         while True:
             self._prune_reassembly()
             flags, payload = await async_read_frame(self._reader, session_key=self.session_key)

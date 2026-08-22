@@ -11,7 +11,7 @@ zstandard = pytest.importorskip("zstandard")
 
 from binascii import crc32
 
-from veyron.framing import (
+from vynkor.framing import (
     FLAG_COMPRESSED,
     FLAG_MAC_PRESENT,
     HEADER_FMT,
@@ -21,7 +21,7 @@ from veyron.framing import (
     pack_frame,
     read_frame,
 )
-from veyron.errors import VeyronInternal
+from vynkor.errors import VeyronInternal
 
 
 def _pack_compressed_frame(target: str, plain_payload: bytes, session_key=None) -> bytes:
@@ -79,7 +79,7 @@ def test_uncompressed_roundtrip_unaffected():
 
 def test_read_frame_rejects_garbage_compressed_payload():
     """T-14 (Python fuzz half): a FLAG_COMPRESSED frame whose payload isn't
-    valid zstd must raise VeyronError like every other malformed-frame path,
+    valid zstd must raise VynkorError like every other malformed-frame path,
     not let zstandard.ZstdError escape uninstructed."""
     garbage = b"\xff" * 64
     target_bytes = b"kernel".ljust(32, b"\x00")[:32]

@@ -2,8 +2,8 @@
 with a Pong (AUDIT H-02). No live kernel required — the client is faked."""
 import asyncio
 
-from veyron.plugin import Plugin
-from veyron.veyron_protocol_pb2 import (
+from vynkor.plugin import Plugin
+from vynkor.vynkor_protocol_pb2 import (
     Envelope,
     Ping,
     PluginRegisterAck,
@@ -12,7 +12,7 @@ from veyron.veyron_protocol_pb2 import (
 
 
 class _FakeClient:
-    """Stands in for VeyronClient: hands out a scripted inbound envelope
+    """Stands in for VynkorClient: hands out a scripted inbound envelope
     sequence and records everything the plugin sends."""
 
     def __init__(self, inbound):

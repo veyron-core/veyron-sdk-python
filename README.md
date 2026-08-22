@@ -10,10 +10,10 @@ HMAC-SHA256 frame authentication, and fragmentation.
 ## Protocol source
 
 `proto/veyron_protocol.proto` is vendored from
-[`veyron-wire`](https://crates.io/crates/veyron-wire)'s `proto/` (wire
+[`vynkor-wire`](https://crates.io/crates/vynkor-wire)'s `proto/` (wire
 protocol **v1.6** as of the latest sync). It's copied by hand, not
 path-referenced — re-sync it when the protocol changes upstream, then
-regenerate `veyron/veyron_protocol_pb2.py` (the kernel's
+regenerate `veyron/vynkor_protocol_pb2.py` (the kernel's
 `scripts/gen_proto_python.py` does both; the kernel's R8-05 test guards
 byte identity).
 
@@ -29,8 +29,8 @@ pip install veyron-sdk
 import asyncio
 import json
 
-from veyron import Plugin
-from veyron.veyron_protocol_pb2 import ActionResponse, ActionStatus, Envelope, PluginManifest
+from vynkor import Plugin
+from vynkor.vynkor_protocol_pb2 import ActionResponse, ActionStatus, Envelope, PluginManifest
 
 
 class EchoPlugin(Plugin):
@@ -77,7 +77,7 @@ methods you need:
 | `on_event(event) -> Envelope \| None` | `None` | auto-acked on success; raise to skip the ack |
 | `on_shutdown()` | no-op | called once when the loop ends |
 
-`run()` connects using `VEYRON_SOCKET_PATH` (or the per-user default),
+`run()` connects using `VYN_SOCKET_PATH` (or the per-user default),
 `run_with(socket_path)` targets an explicit path, and
 `serve(client, jwt_token)` registers on an existing client and runs the loop.
 A handler error from `on_message` stops the loop (after `on_shutdown`) and is
@@ -87,9 +87,9 @@ re-raised out of `serve`.
 
 | Variable             | Meaning                                                        |
 |----------------------|----------------------------------------------------------------|
-| `VEYRON_SOCKET_PATH` | Kernel UDS path. Default: `XDG_RUNTIME_DIR` → `/run/user/<uid>` → `~/.veyron/run` (never shared `/tmp`). |
-| `VEYRON_JWT_TOKEN`   | JWT presented at registration (required on secured kernels).   |
-| `VEYRON_JWT_SECRET`  | Shared secret; enables per-frame HMAC-SHA256 tags after registration. |
+| `VYN_SOCKET_PATH` | Kernel UDS path. Default: `XDG_RUNTIME_DIR` → `/run/user/<uid>` → `~/.local/state/vyn/run` (never shared `/tmp`). |
+| `VYN_JWT_TOKEN`   | JWT presented at registration (required on secured kernels).   |
+| `VYN_JWT_SECRET`  | Shared secret; enables per-frame HMAC-SHA256 tags after registration. |
 
 ## Protocol coverage
 
@@ -100,10 +100,10 @@ reassembly of fragmented messages.
 
 ## Client API
 
-For lower-level control, use `VeyronClient` directly:
+For lower-level control, use `VynkorClient` directly:
 
 ```python
-client = await VeyronClient.connect_with_secret(socket_path, secret)
+client = await VynkorClient.connect_with_secret(socket_path, secret)
 ack = await client.register("weather", manifest)
 
 await client.subscribe(["alarm.fired"])
@@ -118,11 +118,11 @@ await client.send_response_chunk(action_id, 0, b"ok")
 await client.close_session(action_id, "done")
 ```
 
-Constructors: `VeyronClient.connect(socket_path)`,
-`VeyronClient.connect_with_secret(socket_path, secret)`, and
-`VeyronClient.connect_from_env()` (reads `VEYRON_SOCKET_PATH` +
-`VEYRON_JWT_SECRET`) all return a connected client. The classic
-`VeyronClient(socket_path)` + `await client.connect()` pattern still works.
+Constructors: `VynkorClient.connect(socket_path)`,
+`VynkorClient.connect_with_secret(socket_path, secret)`, and
+`VynkorClient.connect_from_env()` (reads `VYN_SOCKET_PATH` +
+`VYN_JWT_SECRET`) all return a connected client. The classic
+`VynkorClient(socket_path)` + `await client.connect()` pattern still works.
 Registration variants: `register(plugin_id, manifest)` and
 `register_full(plugin_id, version, manifest, jwt_token)` return the typed
 `PluginRegisterAck` (inspect `.accepted` / `.reject_reason`), not the raw
@@ -137,7 +137,7 @@ from one task.
 
 `send_action` follows the same `timeout_ms=0` → 30s-default convention and
 returns the kernel's `ActionResponse` as-is (inspect `.status` yourself). It
-raises `VeyronError` on a kernel `Error` envelope or an `ActionStreamAbort`
+raises `VynkorError` on a kernel `Error` envelope or an `ActionStreamAbort`
 for this `action_id`, and `VeyronTimeout` on deadline expiry.
 `send_action_streaming` fires an `ActionRequest(streaming=True)` and returns
 its generated `action_id` immediately, without waiting for any response —
@@ -153,7 +153,7 @@ Other client methods: `recv()` / `recv_frame()` / `recv_timeout(timeout)`,
 
 ## Errors
 
-All SDK-level failures raise `veyron.VeyronError` (or a subclass) instead of
+All SDK-level failures raise `vynkor.VynkorError` (or a subclass) instead of
 bare `ValueError` / `RuntimeError` / `TimeoutError`. Subclasses mirror the
 Rust `WireError` variants: `VeyronIoError`, `VeyronProtoError`,
 `VeyronFrameMagicMismatch`, `VeyronFrameCrcMismatch`, `VeyronFrameReadTimeout`,

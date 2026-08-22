@@ -4,29 +4,29 @@ except ImportError:
     _ProtoVersionError = ImportError  # type: ignore[assignment,misc]
 
 try:
-    from .client import VeyronClient
-    from .errors import VeyronError
+    from .client import VynkorClient
+    from .errors import VynkorError
     from .plugin import Plugin
 except (ImportError, _ProtoVersionError) as _import_err:  # missing deps or protobuf version mismatch
 
     def _unavailable(name: str) -> type:
         def _raise(*_args: object, **_kwargs: object) -> None:
             raise ImportError(
-                f"veyron.{name} unavailable: {_import_err}. "
+                f"vynkor.{name} unavailable: {_import_err}. "
                 "Install the veyron SDK's declared dependencies (see pyproject.toml) to use it."
             ) from _import_err
 
         return type(name, (), {"__init__": _raise, "__init_subclass__": classmethod(_raise)})
 
-    VeyronClient = _unavailable("VeyronClient")  # type: ignore[assignment,misc]
-    VeyronError = _unavailable("VeyronError")  # type: ignore[assignment,misc]
+    VynkorClient = _unavailable("VynkorClient")  # type: ignore[assignment,misc]
+    VynkorError = _unavailable("VynkorError")  # type: ignore[assignment,misc]
     Plugin = _unavailable("Plugin")  # type: ignore[assignment,misc]
 
 from .framing import pack_frame, read_frame, async_read_frame
 
 __all__ = [
-    "VeyronClient",
-    "VeyronError",
+    "VynkorClient",
+    "VynkorError",
     "Plugin",
     "pack_frame",
     "read_frame",
