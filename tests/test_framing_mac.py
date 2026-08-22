@@ -34,7 +34,7 @@ def test_derive_session_key_is_input_sensitive():
 def test_compute_and_verify_tag():
     key = derive_session_key(b"secret", b"nonce-0123456789ab", "p")
     header = bytes(range(44))
-    payload = b"hello veyron"
+    payload = b"hello vynkor"
     tag = compute_tag(key, header, payload)
     assert len(tag) == 32
     assert verify_tag(key, header, payload, tag)

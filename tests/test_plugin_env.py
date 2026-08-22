@@ -47,7 +47,7 @@ def _clean_env(monkeypatch):
 
 
 def test_connect_from_env_reads_socket_path_and_secret(monkeypatch):
-    monkeypatch.setenv("VYN_SOCKET_PATH", "/tmp/veyron-env.sock")
+    monkeypatch.setenv("VYN_SOCKET_PATH", "/tmp/vynkor-env.sock")
     monkeypatch.setenv("VYN_JWT_SECRET", "shh-secret")
     captured = {}
 
@@ -58,11 +58,11 @@ def test_connect_from_env_reads_socket_path_and_secret(monkeypatch):
 
     monkeypatch.setattr(VynkorClient, "connect_with_secret", classmethod(fake_cws))
     asyncio.run(VynkorClient.connect_from_env())
-    assert captured == {"socket_path": "/tmp/veyron-env.sock", "secret": b"shh-secret"}
+    assert captured == {"socket_path": "/tmp/vynkor-env.sock", "secret": b"shh-secret"}
 
 
 def test_connect_from_env_no_secret_passes_none(monkeypatch):
-    monkeypatch.setenv("VYN_SOCKET_PATH", "/tmp/veyron-env.sock")
+    monkeypatch.setenv("VYN_SOCKET_PATH", "/tmp/vynkor-env.sock")
     captured = {}
 
     async def fake_cws(cls, socket_path, secret):
@@ -72,7 +72,7 @@ def test_connect_from_env_no_secret_passes_none(monkeypatch):
 
     monkeypatch.setattr(VynkorClient, "connect_with_secret", classmethod(fake_cws))
     asyncio.run(VynkorClient.connect_from_env())
-    assert captured == {"socket_path": "/tmp/veyron-env.sock", "secret": None}
+    assert captured == {"socket_path": "/tmp/vynkor-env.sock", "secret": None}
 
 
 def test_run_with_passes_env_token_and_secret_through(monkeypatch):
@@ -90,9 +90,9 @@ def test_run_with_passes_env_token_and_secret_through(monkeypatch):
     monkeypatch.setattr(VynkorClient, "connect_with_secret", classmethod(fake_cws))
 
     plugin = _NoopPlugin()
-    asyncio.run(plugin.run_with("/tmp/veyron-env.sock"))
+    asyncio.run(plugin.run_with("/tmp/vynkor-env.sock"))
 
-    assert captured["socket_path"] == "/tmp/veyron-env.sock"
+    assert captured["socket_path"] == "/tmp/vynkor-env.sock"
     assert captured["secret"] == b"shh-secret"
     # register_full called with id/version/manifest/jwt_token
     assert fake.register_args[0] == "env-test-plugin"

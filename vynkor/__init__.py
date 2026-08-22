@@ -13,7 +13,7 @@ except (ImportError, _ProtoVersionError) as _import_err:  # missing deps or prot
         def _raise(*_args: object, **_kwargs: object) -> None:
             raise ImportError(
                 f"vynkor.{name} unavailable: {_import_err}. "
-                "Install the veyron SDK's declared dependencies (see pyproject.toml) to use it."
+                "Install the vynkor SDK's declared dependencies (see pyproject.toml) to use it."
             ) from _import_err
 
         return type(name, (), {"__init__": _raise, "__init_subclass__": classmethod(_raise)})
