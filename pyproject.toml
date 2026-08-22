@@ -46,10 +46,10 @@ fuzz = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/veyron-core/vynkor"
-Repository = "https://github.com/veyron-core/vynkor"
-Documentation = "https://github.com/veyron-core/vynkor/blob/main/docs"
-Issues = "https://github.com/veyron-core/vynkor/issues"
+Homepage = "https://github.com/vynkor-core/vynkor"
+Repository = "https://github.com/vynkor-core/vynkor"
+Documentation = "https://github.com/vynkor-core/vynkor/blob/main/docs"
+Issues = "https://github.com/vynkor-core/vynkor/issues"
 
 [tool.pytest.ini_options]
 # tests/ imports the in-tree package directly (no install needed).
