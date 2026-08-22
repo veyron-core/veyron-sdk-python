@@ -4,7 +4,7 @@ import struct
 
 import pytest
 
-from veyron.framing import (
+from vynkor.framing import (
     FLAG_MAC_PRESENT,
     derive_session_key,
     compute_tag,
@@ -14,7 +14,7 @@ from veyron.framing import (
     async_read_frame,
     HEADER_SIZE,
 )
-from veyron.errors import VeyronInternal
+from vynkor.errors import VeyronInternal
 
 
 def test_derive_session_key_is_deterministic():
@@ -127,17 +127,17 @@ def test_async_read_frame_mac_verifies():
 
 def test_client_derive_session_key_after_mock_ack():
     """Client correctly derives session_key from a mock PluginRegisterAck."""
-    from veyron.client import VeyronClient
-    from veyron.veyron_protocol_pb2 import Envelope, PluginRegisterAck
+    from vynkor.client import VynkorClient
+    from vynkor.vynkor_protocol_pb2 import Envelope, PluginRegisterAck
 
     secret = b"test-jwt-secret"
     nonce = b"nonce-0123456789ab"[:16]
     plugin_id = "mock-plugin"
 
-    client = VeyronClient("/tmp/not-used.sock", secret=secret)
+    client = VynkorClient("/tmp/not-used.sock", secret=secret)
     # Simulate what register() does after receiving the ack
     client._apply_session_nonce(plugin_id, nonce)
 
-    from veyron.framing import derive_session_key
+    from vynkor.framing import derive_session_key
     expected_key = derive_session_key(secret, nonce, plugin_id)
     assert client.session_key == expected_key

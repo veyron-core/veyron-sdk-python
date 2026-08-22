@@ -75,7 +75,7 @@ def _hkdf_expand(prk: bytes, info: bytes, length: int = 32) -> bytes:
 def derive_session_key(secret: bytes, nonce: bytes, plugin_id: str) -> bytes:
     """HKDF-SHA256 session key. Mirrors Rust auth::frame_mac::derive_session_key."""
     prk = _hkdf_extract(salt=nonce, ikm=secret)
-    info = b"veyron-frame-mac-v1|" + plugin_id.encode()
+    info = b"vynkor-frame-mac-v1|" + plugin_id.encode()
     return _hkdf_expand(prk, info, 32)
 
 
@@ -128,7 +128,7 @@ def pack_frame(
     flags: int = 0,
     session_key: Optional[bytes] = None,
 ) -> bytes:
-    """Encode one outbound frame. Mirrors veyron-wire's write_frame_raw:
+    """Encode one outbound frame. Mirrors vynkor-wire's write_frame_raw:
     MAC is computed over the *plaintext* header+payload first, then payloads
     >= COMPRESS_THRESHOLD (and not already compressed / raw binary) are
     zstd-compressed at level 3; CRC32 covers the wire (possibly compressed)

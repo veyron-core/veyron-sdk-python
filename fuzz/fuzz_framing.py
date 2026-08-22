@@ -17,8 +17,8 @@ import atheris
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 with atheris.instrument_imports():
-    from veyron.framing import read_frame
-    from veyron.errors import VeyronError
+    from vynkor.framing import read_frame
+    from vynkor.errors import VeyronError
 
 FIXED_KEY = bytes(range(32))
 

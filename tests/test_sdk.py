@@ -1,6 +1,6 @@
 """Integration tests for the Python Veyron SDK.
 
-Requires a running kernel (vyn start --foreground) at /tmp/veyron.sock.
+Requires a running kernel (vyn start --foreground) at /tmp/vyn.sock.
 Run with: pytest tests/ -v
 """
 import asyncio
@@ -9,10 +9,10 @@ import os
 import pytest
 import pytest_asyncio
 
-from veyron import VeyronClient
-from veyron.veyron_protocol_pb2 import PluginManifest
+from vynkor import VynkorClient
+from vynkor.vynkor_protocol_pb2 import PluginManifest
 
-SOCKET = os.environ.get("VEYRON_SOCKET_PATH", "/tmp/veyron.sock")
+SOCKET = os.environ.get("VYN_SOCKET_PATH", "/tmp/vyn.sock")
 pytestmark = pytest.mark.skipif(
     not os.path.exists(SOCKET),
     reason=f"no kernel socket at {SOCKET}",
@@ -21,7 +21,7 @@ pytestmark = pytest.mark.skipif(
 
 @pytest_asyncio.fixture(scope="function")
 async def client():
-    c = VeyronClient(SOCKET)
+    c = VynkorClient(SOCKET)
     await c.connect()
     yield c
     await c.close()

@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "veyron-sdk"
-version = "0.1.4"
-description = "Veyron plugin SDK for Python"
+name = "vynkor-sdk"
+version = "0.0.2"
+description = "Vynkor plugin SDK for Python"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -13,7 +13,7 @@ requires-python = ">=3.9"
 authors = [
     { name = "veyron-core", email = "btemirkhodjaev@gmail.com" },
 ]
-keywords = ["veyron", "plugin", "ipc", "sdk", "kernel"]
+keywords = ["vynkor", "plugin", "ipc", "sdk", "kernel"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",

@@ -1,4 +1,4 @@
-"""P7-01: VeyronClient.publish_event — mirrors sdk/rust/src/client.rs's
+"""P7-01: VynkorClient.publish_event — mirrors sdk/rust/src/client.rs's
 publish_event tests (OK/PERMISSION_DENY ack passthrough, kernel error raises,
 deadline timeout raises, unrelated traffic discarded)."""
 import asyncio
@@ -8,10 +8,10 @@ import time
 
 import pytest
 
-from veyron import VeyronClient
-from veyron.errors import VeyronInternal, VeyronTimeout
-from veyron.framing import pack_frame, read_frame
-from veyron.veyron_protocol_pb2 import (
+from vynkor import VynkorClient
+from vynkor.errors import VeyronInternal, VeyronTimeout
+from vynkor.framing import pack_frame, read_frame
+from vynkor.vynkor_protocol_pb2 import (
     Envelope,
     EVENT_PUBLISH_OK,
     EVENT_PUBLISH_PERMISSION_DENY,
@@ -33,7 +33,7 @@ def _send_kernel_side(sock, env: Envelope) -> None:
 async def _make_client():
     sock_a, sock_b = socket.socketpair()
     reader, writer = await asyncio.open_connection(sock=sock_a)
-    client = VeyronClient("unused")
+    client = VynkorClient("unused")
     client._reader = reader
     client._writer = writer
     return client, sock_b

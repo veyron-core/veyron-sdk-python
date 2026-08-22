@@ -3,27 +3,27 @@ import os
 import time
 from typing import Optional
 
-from .client import VeyronClient
-from .errors import VeyronError, VeyronPermissionDenied
-from .veyron_protocol_pb2 import Envelope, Event, PluginManifest, Pong
+from .client import VynkorClient
+from .errors import VynkorError, VeyronPermissionDenied
+from .vynkor_protocol_pb2 import Envelope, Event, PluginManifest, Pong
 
 
 def _default_socket_path() -> str:
     """Per-user socket location, mirroring the kernel's default_socket_path():
-    XDG_RUNTIME_DIR → /run/user/<uid> → ~/.veyron/run (created 0700 if used).
+    XDG_RUNTIME_DIR → /run/user/<uid> → ~/.local/state/vyn/run (created 0700 if used).
     Never the world-writable shared /tmp (BUG-006)."""
     runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
     if runtime_dir:
-        return os.path.join(runtime_dir, "veyron.sock")
+        return os.path.join(runtime_dir, "vyn.sock")
     run_user = f"/run/user/{os.getuid()}"
     if os.path.isdir(run_user):
-        return os.path.join(run_user, "veyron.sock")
-    # Last-resort private dir, created like veyron-wire's default_private_dir
+        return os.path.join(run_user, "vyn.sock")
+    # Last-resort private dir, created like vynkor-wire's default_private_dir
     # so it exists (and is not world-readable) by the time we return it.
-    run_dir = os.path.join(os.path.expanduser("~"), ".veyron", "run")
+    run_dir = os.path.join(os.path.expanduser("~"), ".local", "state", "vyn", "run")
     os.makedirs(run_dir, exist_ok=True)
     os.chmod(run_dir, 0o700)
-    return os.path.join(run_dir, "veyron.sock")
+    return os.path.join(run_dir, "vyn.sock")
 
 
 class Plugin:
@@ -32,10 +32,10 @@ class Plugin:
 
     Lifecycle driven by `run` / `run_with` / `serve`:
 
-    1. Connect to the kernel socket (`VEYRON_SOCKET_PATH` or the per-user
+    1. Connect to the kernel socket (`VYN_SOCKET_PATH` or the per-user
        default; never the shared world-writable `/tmp`).
-    2. Register, presenting `VEYRON_JWT_TOKEN` if set. When
-       `VEYRON_JWT_SECRET` is also set, all subsequent frames carry an
+    2. Register, presenting `VYN_JWT_TOKEN` if set. When
+       `VYN_JWT_SECRET` is also set, all subsequent frames carry an
        HMAC-SHA256 tag.
     3. Call `on_init`.
     4. Receive loop: Ping is answered automatically; `PluginShutdown` exits
@@ -46,7 +46,7 @@ class Plugin:
 
     def __init__(self) -> None:
         # set by serve(); available to handlers for convenience
-        self._client: Optional[VeyronClient] = None
+        self._client: Optional[VynkorClient] = None
 
     def id(self) -> str:
         """Unique plugin id, e.g. "weather". Override, or set the legacy
@@ -71,7 +71,7 @@ class Plugin:
             return val
         return PluginManifest()
 
-    async def on_init(self, client: VeyronClient) -> None:
+    async def on_init(self, client: VynkorClient) -> None:
         """Called once after successful registration, before the receive loop.
         Use the client to subscribe, negotiate audio streams, etc."""
 
@@ -93,25 +93,25 @@ class Plugin:
 
     async def run(self) -> None:
         """Connect, register and serve until shutdown. Socket path comes from
-        `VEYRON_SOCKET_PATH`, falling back to the per-user default."""
-        socket_path = os.environ.get("VEYRON_SOCKET_PATH") or _default_socket_path()
+        `VYN_SOCKET_PATH`, falling back to the per-user default."""
+        socket_path = os.environ.get("VYN_SOCKET_PATH") or _default_socket_path()
         await self.run_with(socket_path)
 
     async def run_with(self, socket_path: str) -> None:
         """Like `run` against an explicit socket path. JWT credentials are
-        still read from `VEYRON_JWT_TOKEN` / `VEYRON_JWT_SECRET`."""
-        token = os.environ.get("VEYRON_JWT_TOKEN", "")
-        secret = os.environ.get("VEYRON_JWT_SECRET")
+        still read from `VYN_JWT_TOKEN` / `VYN_JWT_SECRET`."""
+        token = os.environ.get("VYN_JWT_TOKEN", "")
+        secret = os.environ.get("VYN_JWT_SECRET")
         if secret:
-            client = await VeyronClient.connect_with_secret(socket_path, secret.encode())
+            client = await VynkorClient.connect_with_secret(socket_path, secret.encode())
         else:
-            client = await VeyronClient.connect_with_secret(socket_path, None)
+            client = await VynkorClient.connect_with_secret(socket_path, None)
         try:
             await self.serve(client, token)
         finally:
             await client.close()
 
-    async def serve(self, client: VeyronClient, jwt_token: str) -> None:
+    async def serve(self, client: VynkorClient, jwt_token: str) -> None:
         """Register on an existing client and run the receive loop. Building
         block for `run`; also useful in tests."""
         self._client = client

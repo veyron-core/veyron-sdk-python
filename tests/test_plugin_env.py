@@ -5,9 +5,9 @@ import asyncio
 
 import pytest
 
-from veyron import VeyronClient
-from veyron.plugin import Plugin
-from veyron.veyron_protocol_pb2 import Envelope, PluginRegisterAck
+from vynkor import VynkorClient
+from vynkor.plugin import Plugin
+from vynkor.vynkor_protocol_pb2 import Envelope, PluginRegisterAck
 
 
 class _NoopPlugin(Plugin):
@@ -42,13 +42,13 @@ class _FakeClient:
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch):
-    for var in ("VEYRON_JWT_TOKEN", "VEYRON_JWT_SECRET", "VEYRON_SOCKET_PATH"):
+    for var in ("VYN_JWT_TOKEN", "VYN_JWT_SECRET", "VYN_SOCKET_PATH"):
         monkeypatch.delenv(var, raising=False)
 
 
 def test_connect_from_env_reads_socket_path_and_secret(monkeypatch):
-    monkeypatch.setenv("VEYRON_SOCKET_PATH", "/tmp/veyron-env.sock")
-    monkeypatch.setenv("VEYRON_JWT_SECRET", "shh-secret")
+    monkeypatch.setenv("VYN_SOCKET_PATH", "/tmp/veyron-env.sock")
+    monkeypatch.setenv("VYN_JWT_SECRET", "shh-secret")
     captured = {}
 
     async def fake_cws(cls, socket_path, secret):
@@ -56,13 +56,13 @@ def test_connect_from_env_reads_socket_path_and_secret(monkeypatch):
         captured["secret"] = secret
         return _FakeClient()
 
-    monkeypatch.setattr(VeyronClient, "connect_with_secret", classmethod(fake_cws))
-    asyncio.run(VeyronClient.connect_from_env())
+    monkeypatch.setattr(VynkorClient, "connect_with_secret", classmethod(fake_cws))
+    asyncio.run(VynkorClient.connect_from_env())
     assert captured == {"socket_path": "/tmp/veyron-env.sock", "secret": b"shh-secret"}
 
 
 def test_connect_from_env_no_secret_passes_none(monkeypatch):
-    monkeypatch.setenv("VEYRON_SOCKET_PATH", "/tmp/veyron-env.sock")
+    monkeypatch.setenv("VYN_SOCKET_PATH", "/tmp/veyron-env.sock")
     captured = {}
 
     async def fake_cws(cls, socket_path, secret):
@@ -70,14 +70,14 @@ def test_connect_from_env_no_secret_passes_none(monkeypatch):
         captured["secret"] = secret
         return _FakeClient()
 
-    monkeypatch.setattr(VeyronClient, "connect_with_secret", classmethod(fake_cws))
-    asyncio.run(VeyronClient.connect_from_env())
+    monkeypatch.setattr(VynkorClient, "connect_with_secret", classmethod(fake_cws))
+    asyncio.run(VynkorClient.connect_from_env())
     assert captured == {"socket_path": "/tmp/veyron-env.sock", "secret": None}
 
 
 def test_run_with_passes_env_token_and_secret_through(monkeypatch):
-    monkeypatch.setenv("VEYRON_JWT_TOKEN", "tok-123")
-    monkeypatch.setenv("VEYRON_JWT_SECRET", "shh-secret")
+    monkeypatch.setenv("VYN_JWT_TOKEN", "tok-123")
+    monkeypatch.setenv("VYN_JWT_SECRET", "shh-secret")
 
     fake = _FakeClient()
     captured = {}
@@ -87,7 +87,7 @@ def test_run_with_passes_env_token_and_secret_through(monkeypatch):
         captured["secret"] = secret
         return fake
 
-    monkeypatch.setattr(VeyronClient, "connect_with_secret", classmethod(fake_cws))
+    monkeypatch.setattr(VynkorClient, "connect_with_secret", classmethod(fake_cws))
 
     plugin = _NoopPlugin()
     asyncio.run(plugin.run_with("/tmp/veyron-env.sock"))

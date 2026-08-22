@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Generate Python protobuf bindings from ../vynkor-wire/proto/veyron_protocol.proto."""
+"""Generate Python protobuf bindings from ../vynkor-wire/proto/vynkor_protocol.proto."""
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
-PROTO_DIR = ROOT.parent / "veyron-wire" / "proto"
-PROTO = PROTO_DIR / "veyron_protocol.proto"
-OUT = ROOT / "veyron"
+PROTO_DIR = ROOT.parent / "vynkor-wire" / "proto"
+PROTO = PROTO_DIR / "vynkor_protocol.proto"
+OUT = ROOT / "vynkor"
 
 if __name__ == "__main__":
     OUT.mkdir(parents=True, exist_ok=True)
@@ -24,4 +24,4 @@ if __name__ == "__main__":
     if result.returncode != 0:
         print(result.stderr, file=sys.stderr)
         sys.exit(1)
-    print(f"Generated {OUT}/veyron_protocol_pb2.py")
+    print(f"Generated {OUT}/vynkor_protocol_pb2.py")
