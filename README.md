@@ -1,6 +1,6 @@
 # veyron-sdk
 
-Python SDK for writing [Veyron](https://github.com/veyron-core/veyron) plugins.
+Python SDK for writing [Veyron](https://github.com/veyron-core/vynkor) plugins.
 
 A Veyron plugin is a separate OS process supervised by the Veyron kernel. It
 talks to the kernel over a Unix domain socket using the Veyron wire protocol:

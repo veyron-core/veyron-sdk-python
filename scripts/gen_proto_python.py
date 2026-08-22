@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate Python protobuf bindings from ../veyron-wire/proto/veyron_protocol.proto."""
+"""Generate Python protobuf bindings from ../vynkor-wire/proto/veyron_protocol.proto."""
 import subprocess
 import sys
 from pathlib import Path
